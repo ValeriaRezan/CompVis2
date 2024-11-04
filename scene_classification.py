@@ -8,11 +8,9 @@ from PIL import Image
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 
-
-#extra
+# extra
 from torch.optim.lr_scheduler import StepLR
 import torch.nn.functional as F
-
 
 
 class MiniPlaces(Dataset):
@@ -51,7 +49,6 @@ class MiniPlaces(Dataset):
                     normalized_path = line[0].replace('/', os.sep)
                     text_label = normalized_path.split(os.sep)[2]
                     self.label_dict[label] = text_label
-                
 
     def __len__(self):
         """
@@ -76,69 +73,50 @@ class MiniPlaces(Dataset):
             image = self.transform(
                 Image.open(os.path.join(self.root_dir, "images", self.filenames[idx])))
         else:
-                image = Image.open(os.path.join(self.root_dir, "images", self.filenames[idx]))
+            image = Image.open(os.path.join(self.root_dir, "images", self.filenames[idx]))
         label = self.labels[idx]
         return image, label
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
 class MyConv(nn.Module):
     def __init__(self, num_classes=100):
         super(MyConv, self).__init__()
-        # Convolutional layers with Batch Normalization and Dropout
+        # Convolutional layers as per the architecture
         self.layer1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=7, stride=2, padding=3)
         self.norm1 = nn.BatchNorm2d(32)
-        self.dropout1 = nn.Dropout(p=0.3)
-
         self.layer2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1)
         self.norm2 = nn.BatchNorm2d(64)
-        self.dropout2 = nn.Dropout(p=0.3)
-
         self.layer3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
         self.norm3 = nn.BatchNorm2d(128)
-        self.dropout3 = nn.Dropout(p=0.4)
-
         self.layer4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
         self.norm4 = nn.BatchNorm2d(256)
-        self.dropout4 = nn.Dropout(p=0.4)
-
         self.layer5 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1)
         self.norm5 = nn.BatchNorm2d(512)
-        self.dropout5 = nn.Dropout(p=0.4)
-
-        # Adaptive Average Pooling
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
         # Fully Connected Layers
-        self.fc = nn.Linear(512, 4096)
-        self.dropout_fc = nn.Dropout(p=0.5)
-
+        self.fc = nn.Linear(512 * 4 * 4, 4096)
+        self.fc2 = nn.Linear(4096, 256)
         # Output Layer
-        self.output = nn.Linear(4096, num_classes)
+        self.output = nn.Linear(256, num_classes)
+
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d((4, 4))
+        self.dropout = nn.Dropout(p=0.25)
 
     def forward(self, x):
-        x = F.leaky_relu(self.norm1(self.layer1(x)))
-        x = self.dropout1(x)
-        x = F.leaky_relu(self.norm2(self.layer2(x)))
-        x = self.dropout2(x)
-        x = F.leaky_relu(self.norm3(self.layer3(x)))
-        x = self.dropout3(x)
-        x = F.leaky_relu(self.norm4(self.layer4(x)))
-        x = self.dropout4(x)
-        x = F.leaky_relu(self.norm5(self.layer5(x)))
-        x = self.dropout5(x)
-
+        x = self.pool(F.leaky_relu(self.norm1(self.layer1(x))))
+        x = self.pool(F.leaky_relu(self.norm2(self.layer2(x))))
+        x = self.pool(F.leaky_relu(self.norm3(self.layer3(x))))
+        x = self.pool(F.leaky_relu(self.norm4(self.layer4(x))))
+        x = self.pool(F.leaky_relu(self.norm5(self.layer5(x))))
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = F.leaky_relu(self.fc(x))
-        x = self.dropout_fc(x)
+        # x = self.dropout(x)
+        x = F.leaky_relu(self.fc2(x))
+        # x = self.dropout(x)
         x = self.output(x)
         return x
-
 
 
 def evaluate(model, test_loader, criterion, device):
@@ -155,7 +133,7 @@ def evaluate(model, test_loader, criterion, device):
         float: Average loss on the test set.
         float: Accuracy on the test set.
     """
-    model.eval() # Set model to evaluation mode
+    model.eval()  # Set model to evaluation mode
 
     with torch.no_grad():
         total_loss = 0.0
@@ -176,13 +154,13 @@ def evaluate(model, test_loader, criterion, device):
             _, predictions = torch.max(logits, dim=1)
             num_correct += (predictions == labels).sum().item()
             num_samples += len(inputs)
-            
 
     # Evaluate the model on the validation set
     avg_loss = total_loss / len(test_loader)
     accuracy = num_correct / num_samples
-    
+
     return avg_loss, accuracy
+
 
 def train(model, train_loader, val_loader, optimizer, scheduler, criterion, device,
           num_epochs):
@@ -202,14 +180,14 @@ def train(model, train_loader, val_loader, optimizer, scheduler, criterion, devi
     # Place the model on device
     model = model.to(device)
     for epoch in range(num_epochs):
-        model.train() # Set model to training mode
+        model.train()  # Set model to training mode
 
         with tqdm(total=len(train_loader),
-                  desc=f'Epoch {epoch +1}/{num_epochs}',
+                  desc=f'Epoch {epoch + 1}/{num_epochs}',
                   position=0,
                   leave=True) as pbar:
             for inputs, labels in train_loader:
-                #Move inputs and labels to device
+                # Move inputs and labels to device
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -228,12 +206,13 @@ def train(model, train_loader, val_loader, optimizer, scheduler, criterion, devi
                 pbar.update(1)
                 pbar.set_postfix(loss=loss.item())
 
-            scheduler.step() #added scheduler in the args
+            scheduler.step()  # added scheduler in the args
 
             avg_loss, accuracy = evaluate(model, val_loader, criterion, device)
             print(
                 f'Validation set: Average loss = {avg_loss:.4f}, Accuracy = {accuracy:.4f}'
-                )
+            )
+
 
 def test(model, test_loader, device):
     """
@@ -249,7 +228,7 @@ def test(model, test_loader, device):
         float: Accuracy on the test set.
     """
     model = model.to(device)
-    model.eval() # Set model to evaluation mode
+    model.eval()  # Set model to evaluation mode
 
     with torch.no_grad():
         all_preds = []
@@ -264,23 +243,22 @@ def test(model, test_loader, device):
             preds = list(zip(labels, predictions.tolist()))
             all_preds.extend(preds)
     return all_preds
-            
-            
 
     # Evaluate the model on the validation set
     avg_loss = total_loss / len(test_loader)
     accuracy = num_correct / num_samples
-    
+
     return avg_loss, accuracy
+
 
 def main(args):
     image_net_mean = torch.Tensor([0.485, 0.456, 0.406])
     image_net_std = torch.Tensor([0.229, 0.224, 0.225])
-    
+
     # Define data transformation
     data_transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Resize((128,128)),
+        transforms.Resize((128, 128)),
         transforms.Normalize(image_net_mean, image_net_std),
     ])
 
@@ -300,9 +278,8 @@ def main(args):
     #     transforms.Normalize(mean=image_net_mean, std=image_net_std),
     # ])
 
-
     data_root = 'data'
-    
+
     # Create MiniPlaces dataset object
     miniplaces_train = MiniPlaces(data_root,
                                   split='train',
@@ -312,12 +289,10 @@ def main(args):
                                 transform=data_transform,
                                 label_dict=miniplaces_train.label_dict)
 
-
-
     # Create the dataloaders
-    
+
     # Define the batch size and number of workers
-    batch_size = 64
+    batch_size = 256
     num_workers = 2
 
     # Create DataLoader for training and validation sets
@@ -330,45 +305,44 @@ def main(args):
                             num_workers=num_workers,
                             shuffle=False)
 
-
-    print(torch.cuda.is_available())
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     model = MyConv(num_classes=len(miniplaces_train.label_dict))
-                   
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01 , momentum=0.9)
-    #optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.5) #added scheduler, each epoch multily by gamma
+
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.03, momentum=0.9)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.3)  # added scheduler, each epoch multily by gamma
 
     criterion = nn.CrossEntropyLoss()
 
     if not args.test:
 
         train(model, train_loader, val_loader, optimizer, scheduler, criterion,
-              device, num_epochs=5)
+              device, num_epochs=15)
 
         torch.save({'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict':optimizer.state_dict()}, 'model.ckpt')
+                    'optimizer_state_dict': optimizer.state_dict()}, 'model.ckpt')
 
     else:
         miniplaces_test = MiniPlaces(data_root,
                                      split='test',
                                      transform=data_transform)
         test_loader = DataLoader(miniplaces_test,
-                                batch_size=batch_size,
-                                num_workers=num_workers,
-                                shuffle=False)        
+                                 batch_size=batch_size,
+                                 num_workers=num_workers,
+                                 shuffle=False)
         checkpoint = torch.load(args.checkpoint, weights_only=True)
         model.load_state_dict(checkpoint['model_state_dict'])
         preds = test(model, test_loader, device)
         write_predictions(preds, 'predictions.csv')
+
 
 def write_predictions(preds, filename):
     with open(filename, 'w') as f:
         writer = csv.writer(f, delimiter=',')
         for im, pred in preds:
             writer.writerow((im, pred))
-    
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
