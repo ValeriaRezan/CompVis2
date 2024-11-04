@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 
 #extra
 from torch.optim.lr_scheduler import StepLR
+import torch.nn.functional as F
 
 
 
@@ -81,69 +82,39 @@ class MiniPlaces(Dataset):
 
 
 class MyConv(nn.Module):
-    def __init__(self, num_classes=365):
+    def __init__(self, num_classes=100):
         super(MyConv, self).__init__()
         # Convolutional layers as per the architecture
-        self.layer1 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3),
-            nn.ReLU()
-        )
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.layer1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=7, stride=2, padding=3)
+        self.norm1 = nn.BatchNorm2d(32)
+        self.layer2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1)
+        self.norm2 = nn.BatchNorm2d(64)
+        self.layer3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.norm3 = nn.BatchNorm2d(128)
+        self.layer4 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
+        self.norm4 = nn.BatchNorm2d(256)
+        self.layer5 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1)
+        self.norm5 = nn.BatchNorm2d(512)
 
-        self.layer2 = nn.Sequential(
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU()
-        )
 
-        self.layer3 = nn.Sequential(
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.ReLU()
-        )
-
-        self.layer4 = nn.Sequential(
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
-        )
-
-        self.layer5 = nn.Sequential(
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
-        )
-
-        # Use Adaptive Average Pooling to ensure a fixed output size
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
 
         # Fully Connected Layers
-        self.fc = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 4096),  # Now guaranteed to match
-            nn.ReLU()
-        )
-
+        self.fc = nn.Linear(512 * 4 * 4, 4096)
         # Output Layer
         self.output = nn.Linear(4096, num_classes)
 
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d((4, 4))
+
     def forward(self, x):
-        x = self.layer1(x)
-        x = self.pool1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.layer5(x)
-
-        # Apply adaptive pooling to get fixed 7x7 output
-        x = self.adaptive_pool(x)
-
-        # Flatten the tensor for fully connected layers
+        x = self.pool(F.relu(self.norm1(self.layer1(x))))
+        x = self.pool(F.relu(self.norm2(self.layer2(x))))
+        x = self.pool(F.relu(self.norm3(self.layer3(x))))
+        x = self.pool(F.relu(self.norm4(self.layer4(x))))
+        x = self.pool(F.relu(self.norm5(self.layer5(x))))
+        x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        x = F.relu(self.fc(x))
         x = self.output(x)
         return x
 
@@ -235,7 +206,7 @@ def train(model, train_loader, val_loader, optimizer, scheduler, criterion, devi
                 pbar.update(1)
                 pbar.set_postfix(loss=loss.item())
 
-            #scheduler.step() #added scheduler in the args    
+            scheduler.step() #added scheduler in the args
 
             avg_loss, accuracy = evaluate(model, val_loader, criterion, device)
             print(
@@ -343,7 +314,7 @@ def main(args):
     print(device)
     model = MyConv(num_classes=len(miniplaces_train.label_dict))
                    
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01 , momentum=0.9)
     #optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = StepLR(optimizer, step_size=1, gamma=0.9) #added scheduler, each epoch multily by gamma
 
